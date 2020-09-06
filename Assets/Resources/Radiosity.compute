@@ -1,0 +1,71 @@
+﻿// Each #kernel tells which function to compile; you can have many kernels
+#pragma kernel CSClear
+#pragma kernel CSSweep
+#pragma kernel CSCopyToTexture
+
+Texture2D<float4> ShapesTexR;
+StructuredBuffer<float4> LightBufferR;
+RWStructuredBuffer<float4> LightBufferW;
+RWTexture2D<float4> LightTexW;
+
+uint TexSize;
+float4 SweepStart;
+float2 SweepStep;
+
+static const float FEEDBACK = 0.5;
+
+[numthreads(8,8,1)]
+void CSClear (uint3 id : SV_DispatchThreadID)
+{
+    uint index = id.x + id.y * TexSize;
+    LightBufferW[index] = float4(LightBufferR[index].rgb * FEEDBACK, 0);
+}
+
+[numthreads(8, 1, 1)]
+void CSSweep (uint3 id : SV_DispatchThreadID)
+{
+    float2 pos = SweepStart.xy + id.x * SweepStart.zw;
+    float3 energy = 0;
+    float ds = length(SweepStep);
+    float4 previousCol = 0;
+    float multiplier = 1 - FEEDBACK;
+
+    for (uint s = 0; s < TexSize; ++s)
+    {
+        uint3 texCoord = uint3(floor(pos.x), floor(pos.y), 0);
+        if (texCoord.x >= 1 && texCoord.x < (TexSize - 1) && texCoord.y >= 1 && texCoord.y < (TexSize - 1))
+        {
+            uint index = texCoord.x + texCoord.y * TexSize;
+            float4 col = ShapesTexR.Load(texCoord);
+            bool fromWall = previousCol.a > 0.9999;
+            bool toWall = col.a > 0.9999;
+            float3 e;
+            if (fromWall && toWall) {
+                // Inside wall
+                energy *= pow(0.6, ds);
+                e = energy;
+            } else {
+                if (fromWall) {
+                    energy = previousCol.rgb;
+                }
+                e = energy;
+                if (toWall) {
+                    energy = max(energy, col.rgb);
+                } else {
+                    energy = lerp(energy, col.rgb, col.a);
+                }
+                energy *= pow(0.9, ds);
+            }
+            LightBufferW[index] = LightBufferR[index] + float4(multiplier * max(col.rgb, e), 1);
+            previousCol = col;
+        }
+        pos += SweepStep;
+    }
+}
+
+[numthreads(8,8,1)]
+void CSCopyToTexture (uint3 id : SV_DispatchThreadID)
+{
+    float4 energy = LightBufferR[id.x + id.y * TexSize];
+    LightTexW[id.xy] = float4(energy.rgb / max(1, energy.a), 1);
+}
