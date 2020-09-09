@@ -10,7 +10,14 @@ public class RadiositySystem : MonoBehaviour
 {
 	public float size = 256;
     public int textureSize = 1024;
+    [Range(0, 256)]
     public int sweeps = 128;
+    [Range(0, 256)]
+    public int sweepsPerFrame = 16;
+    [Range(0, 1)]
+    public float feedback = 0.9f;
+    [Range(0, 1)]
+    public float multiplier = 0.1f;
 	public float nearClip = 0.01f;
     public float farClip = 500;	
 	public LayerMask layerMask;
@@ -21,6 +28,7 @@ public class RadiositySystem : MonoBehaviour
     private int sweepKernel;
     private int copyToTexKernel;
 	private Camera cam;
+    private int sweep;
 
     private void Awake()
     {
@@ -125,8 +133,10 @@ public class RadiositySystem : MonoBehaviour
 
         radiosityShader.SetTexture(sweepKernel, "ShapesTexR", shapes);
         radiosityShader.SetInt("TexSize", textureSize);
-        float rndAngle = Random.Range(-0.5f, 0.5f);
-        for (int k = 0; k < sweeps; ++k)
+        radiosityShader.SetFloat("FeedbackMultiplier", feedback);
+        radiosityShader.SetFloat("Multiplier", multiplier / sweepsPerFrame);
+        float rndAngle = 0f;//Random.Range(-0.5f, 0.5f);
+        for (int k = 0; k < sweepsPerFrame / 4; ++k)
         {
             for (int q = 0; q < 4; ++q)
             {
@@ -145,7 +155,7 @@ public class RadiositySystem : MonoBehaviour
                         qStart = new Vector4(0, textureSize, 1, -1);
                         break;
                 }
-                float angle = 0.5f * Mathf.PI * ((k + 0.5f + rndAngle) / sweeps + q);
+                float angle = 0.5f * Mathf.PI * ((sweep + 0.5f + rndAngle) / sweeps + q);
                 var dir = new Vector2(Mathf.Cos(angle), Mathf.Sin(angle));
                 Vector4 start;
                 var dx = Mathf.Abs(dir.x);
@@ -167,6 +177,7 @@ public class RadiositySystem : MonoBehaviour
                 radiosityShader.Dispatch(sweepKernel, lines / 8, 1, 1);
                 Swap(lightBuffer);
             }
+            sweep = (sweep + 4) % sweeps;
         }
 
         //Graphics.Blit(shapes, lightTexture);

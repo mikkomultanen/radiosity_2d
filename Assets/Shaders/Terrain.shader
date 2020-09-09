@@ -3,6 +3,7 @@
     Properties
     {
         _MainTex ("Texture", 2D) = "white" {}
+        [HDR]_Color("Color", Color) = (1,1,1,1)
     }
     SubShader
     {
@@ -32,6 +33,7 @@
 
             sampler2D _MainTex;
             float4 _MainTex_ST;
+            float4 _Color;
             uniform sampler2D LightTex;
             uniform float4 LightTexScale;
 
@@ -48,7 +50,8 @@
             {
                 float4 col = tex2D(_MainTex, i.uv);
                 float2 light_uv = i.worldPos.xy * LightTexScale.xy + 0.5;
-                col.rgb = (col * tex2D(LightTex, light_uv)).rgb;
+                float3 light = tex2D(LightTex, light_uv);
+                col.rgb *= light * _Color.rgb;
                 return col;
             }
             ENDCG

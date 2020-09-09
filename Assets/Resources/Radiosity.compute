@@ -8,17 +8,24 @@ StructuredBuffer<float4> LightBufferR;
 RWStructuredBuffer<float4> LightBufferW;
 RWTexture2D<float4> LightTexW;
 
+float FeedbackMultiplier;
+float Multiplier;
 uint TexSize;
 float4 SweepStart;
 float2 SweepStep;
-
-static const float FEEDBACK = 0.5;
 
 [numthreads(8,8,1)]
 void CSClear (uint3 id : SV_DispatchThreadID)
 {
     uint index = id.x + id.y * TexSize;
-    LightBufferW[index] = float4(LightBufferR[index].rgb * FEEDBACK, 0);
+    LightBufferW[index] = float4(LightBufferR[index].rgb * FeedbackMultiplier, 0);
+}
+
+float3 getEmissive(float4 color)
+{
+    return color.rgb;
+    /*float m = max(max(color.r, color.g), color.b);
+    return max((m - 1) * color.rgb / m, float3(0, 0, 0));*/
 }
 
 [numthreads(8, 1, 1)]
@@ -28,7 +35,6 @@ void CSSweep (uint3 id : SV_DispatchThreadID)
     float3 energy = 0;
     float ds = length(SweepStep);
     float4 previousCol = 0;
-    float multiplier = 1 - FEEDBACK;
 
     for (uint s = 0; s < TexSize; ++s)
     {
@@ -37,6 +43,7 @@ void CSSweep (uint3 id : SV_DispatchThreadID)
         {
             uint index = texCoord.x + texCoord.y * TexSize;
             float4 col = ShapesTexR.Load(texCoord);
+            float3 colEnergy = getEmissive(col);
             bool fromWall = previousCol.a > 0.9999;
             bool toWall = col.a > 0.9999;
             float3 e;
@@ -46,17 +53,17 @@ void CSSweep (uint3 id : SV_DispatchThreadID)
                 e = energy;
             } else {
                 if (fromWall) {
-                    energy = previousCol.rgb;
+                    energy = getEmissive(previousCol);
                 }
                 e = energy;
                 if (toWall) {
-                    energy = max(energy, col.rgb);
+                    energy = max(energy, colEnergy);
                 } else {
-                    energy = lerp(energy, col.rgb, col.a);
+                    energy = lerp(energy, colEnergy, col.a);
                 }
-                energy *= pow(0.9, ds);
+                //energy *= pow(0.9, ds);
             }
-            LightBufferW[index] = LightBufferR[index] + float4(multiplier * max(col.rgb, e), 1);
+            LightBufferW[index] = LightBufferR[index] + float4(Multiplier * max(colEnergy, e), 0);
             previousCol = col;
         }
         pos += SweepStep;
@@ -67,5 +74,5 @@ void CSSweep (uint3 id : SV_DispatchThreadID)
 void CSCopyToTexture (uint3 id : SV_DispatchThreadID)
 {
     float4 energy = LightBufferR[id.x + id.y * TexSize];
-    LightTexW[id.xy] = float4(energy.rgb / max(1, energy.a), 1);
+    LightTexW[id.xy] = float4(energy.rgb, 1);
 }
