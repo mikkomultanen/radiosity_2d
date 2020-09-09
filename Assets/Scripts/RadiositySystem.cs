@@ -10,6 +10,7 @@ public class RadiositySystem : MonoBehaviour
 {
 	public float size = 256;
     public int textureSize = 1024;
+    public RenderTextureFormat textureFormat = RenderTextureFormat.DefaultHDR;
     [Range(0, 256)]
     public int sweeps = 128;
     [Range(0, 256)]
@@ -21,12 +22,10 @@ public class RadiositySystem : MonoBehaviour
 	public float nearClip = 0.01f;
     public float farClip = 500;	
 	public LayerMask layerMask;
-	public RenderTexture lightTexture;
-    private ComputeBuffer[] lightBuffer = new ComputeBuffer[2];
+	private RenderTexture[] lightBuffer = new RenderTexture[2];
     private ComputeShader radiosityShader;
     private int clearKernel;
     private int sweepKernel;
-    private int copyToTexKernel;
 	private Camera cam;
     private int sweep;
 
@@ -82,20 +81,22 @@ public class RadiositySystem : MonoBehaviour
     }
 
     private void OnEnable() {
-		lightTexture = new RenderTexture(textureSize, textureSize, 24, RenderTextureFormat.DefaultHDR, RenderTextureReadWrite.Linear);
-		lightTexture.filterMode = FilterMode.Bilinear;
-        lightTexture.enableRandomWrite = true;
-		lightTexture.hideFlags = HideFlags.DontSave;
-        lightTexture.Create();
-        Shader.SetGlobalTexture("LightTex", lightTexture);
+		lightBuffer[0] = new RenderTexture(textureSize, textureSize, 24, textureFormat, RenderTextureReadWrite.Linear);
+		lightBuffer[0].filterMode = FilterMode.Bilinear;
+        lightBuffer[0].enableRandomWrite = true;
+		lightBuffer[0].hideFlags = HideFlags.DontSave;
+        lightBuffer[0].Create();
+		lightBuffer[1] = new RenderTexture(textureSize, textureSize, 24, textureFormat, RenderTextureReadWrite.Linear);
+		lightBuffer[1].filterMode = FilterMode.Bilinear;
+        lightBuffer[1].enableRandomWrite = true;
+		lightBuffer[1].hideFlags = HideFlags.DontSave;
+        lightBuffer[1].Create();
+        Shader.SetGlobalTexture("LightTex", lightBuffer[0]);
         Shader.SetGlobalVector("LightTexScale", new Vector4(1.0f / size, 1.0f / size, size, size));
 
-        lightBuffer[0] = new ComputeBuffer(textureSize * textureSize, Marshal.SizeOf(typeof(Vector4)), ComputeBufferType.Default);
-        lightBuffer[1] = new ComputeBuffer(textureSize * textureSize, Marshal.SizeOf(typeof(Vector4)), ComputeBufferType.Default);
         radiosityShader = Resources.Load("Radiosity") as ComputeShader;
         clearKernel = radiosityShader.FindKernel("CSClear");
         sweepKernel = radiosityShader.FindKernel("CSSweep");
-        copyToTexKernel = radiosityShader.FindKernel("CSCopyToTexture");
 
 		GameObject go = new GameObject("DistanceFieldCamera", typeof(Camera));//, typeof(RadiosityTest));
 		go.hideFlags = HideFlags.HideAndDontSave;
@@ -109,12 +110,6 @@ public class RadiositySystem : MonoBehaviour
 		cam.clearFlags = CameraClearFlags.SolidColor;
 		cam.projectionMatrix = Matrix4x4.Ortho(-halfSize, halfSize, -halfSize, halfSize, nearClip, farClip);
 		cam.enabled = false;
-
-		//cam.SetReplacementShader(Shader.Find("Hidden/PlanetShooter/DistanceField"),"");
-		MeshRenderer renderer = GetComponent<MeshRenderer>();
-        MaterialPropertyBlock materialProperties = new MaterialPropertyBlock();
-        materialProperties.SetTexture("_MainTex", lightTexture);
-        renderer.SetPropertyBlock(materialProperties);
 	}
 
 	private void LateUpdate() {
@@ -124,8 +119,8 @@ public class RadiositySystem : MonoBehaviour
 		cam.Render();
 		cam.targetTexture = null;
 
-        radiosityShader.SetBuffer(clearKernel, "LightBufferR", lightBuffer[0]);
-        radiosityShader.SetBuffer(clearKernel, "LightBufferW", lightBuffer[1]);
+        radiosityShader.SetTexture(clearKernel, "LightBufferR", lightBuffer[0]);
+        radiosityShader.SetTexture(clearKernel, "LightBufferW", lightBuffer[1]);
         radiosityShader.SetInt("TexSize", textureSize);
         radiosityShader.Dispatch(clearKernel, textureSize / 8, textureSize / 8, 1);
 
@@ -170,8 +165,8 @@ public class RadiositySystem : MonoBehaviour
                     start = new Vector4(qStart.x - dir.x * textureSize, qStart.y, qStart.z, 0);
                     lines = textureSize + Mathf.CeilToInt(Mathf.Abs(start.x));
                 }
-                radiosityShader.SetBuffer(sweepKernel, "LightBufferR", lightBuffer[0]);
-                radiosityShader.SetBuffer(sweepKernel, "LightBufferW", lightBuffer[1]);
+                radiosityShader.SetTexture(sweepKernel, "LightBufferR", lightBuffer[0]);
+                radiosityShader.SetTexture(sweepKernel, "LightBufferW", lightBuffer[1]);
                 radiosityShader.SetVector("SweepStart", start);
                 radiosityShader.SetVector("SweepStep", dir);
                 radiosityShader.Dispatch(sweepKernel, lines / 8, 1, 1);
@@ -182,17 +177,11 @@ public class RadiositySystem : MonoBehaviour
 
         //Graphics.Blit(shapes, lightTexture);
         RenderTexture.ReleaseTemporary(shapes);
-
-        radiosityShader.SetBuffer(copyToTexKernel, "LightBufferR", lightBuffer[0]);
-        radiosityShader.SetTexture(copyToTexKernel, "LightTexW", lightTexture);
-        radiosityShader.SetInt("TexSize", textureSize);
-        radiosityShader.Dispatch(copyToTexKernel, textureSize / 8, textureSize / 8, 1);
-
+        Shader.SetGlobalTexture("LightTex", lightBuffer[0]);
 	}
 
 	private void OnDisable() {
 		DestroyImmediate(cam);
-		DestroyImmediate(lightTexture);
         Release(lightBuffer);
 	}
 
@@ -203,14 +192,14 @@ public class RadiositySystem : MonoBehaviour
         GUI.Label(new Rect(0, 0, 200, 200), text);
     }
 
-    public static void Swap(ComputeBuffer[] buffers)
+    public static void Swap(RenderTexture[] buffers)
     {
-        ComputeBuffer tmp = buffers[0];
+        RenderTexture tmp = buffers[0];
         buffers[0] = buffers[1];
         buffers[1] = tmp;
     }
 
-    public static void Release(IList<ComputeBuffer> buffers)
+    public static void Release(IList<RenderTexture> buffers)
     {
         if (buffers == null) return;
 
