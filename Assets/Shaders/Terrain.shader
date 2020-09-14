@@ -50,8 +50,8 @@
             {
                 float4 col = tex2D(_MainTex, i.uv);
                 float2 light_uv = i.worldPos.xy * LightTexScale.xy + 0.5;
-                float3 light = tex2D(LightTex, light_uv);
-                col.rgb *= light * _Color.rgb;
+                float4 light = tex2D(LightTex, light_uv);
+                col.rgb *= light.rgb * light.a * _Color.rgb;
                 return col;
             }
             ENDCG

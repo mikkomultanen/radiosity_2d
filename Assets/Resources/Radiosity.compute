@@ -3,8 +3,8 @@
 #pragma kernel CSSweep
 
 Texture2D<float4> ShapesTexR;
-Texture2D<float3> LightBufferR;
-RWTexture2D<float3> LightBufferW;
+Texture2D<float4> LightBufferR;
+RWTexture2D<float4> LightBufferW;
 
 float FeedbackMultiplier;
 float Multiplier;
@@ -18,11 +18,15 @@ void CSClear (uint3 id : SV_DispatchThreadID)
     LightBufferW[id.xy] = LightBufferR.Load(id) * FeedbackMultiplier;
 }
 
-float3 getEmissive(float4 color)
+float4 energyToColor(float3 energy)
 {
-    return color.rgb;
-    /*float m = max(max(color.r, color.g), color.b);
-    return max((m - 1) * color.rgb / m, float3(0, 0, 0));*/
+    float a = max(max(max(energy.r, energy.g), energy.b), 1.0/65536.0);
+    return float4(energy / a, a);
+}
+
+float3 colorToEnergy(float4 color)
+{
+    return color.rgb * color.a;
 }
 
 [numthreads(8, 1, 1)]
@@ -39,17 +43,17 @@ void CSSweep (uint3 id : SV_DispatchThreadID)
         if (texCoord.x >= 1 && texCoord.x < (TexSize - 1) && texCoord.y >= 1 && texCoord.y < (TexSize - 1))
         {
             float4 col = ShapesTexR.Load(texCoord);
-            float3 colEnergy = getEmissive(col);
+            float3 colEnergy = col.rgb;
             bool fromWall = previousCol.a > 0.9999;
             bool toWall = col.a > 0.9999;
             float3 e;
             if (fromWall && toWall) {
                 // Inside wall
                 energy *= pow(0.6, ds);
-                e = energy;
+                e = max(colEnergy, energy);
             } else {
                 if (fromWall) {
-                    energy = getEmissive(previousCol);
+                    energy = previousCol.rgb;
                 }
                 e = energy;
                 if (toWall) {
@@ -57,9 +61,8 @@ void CSSweep (uint3 id : SV_DispatchThreadID)
                 } else {
                     energy = lerp(energy, colEnergy, col.a);
                 }
-                //energy *= pow(0.9, ds);
             }
-            LightBufferW[texCoord.xy] = LightBufferR.Load(texCoord) + Multiplier * max(colEnergy, e);
+            LightBufferW[texCoord.xy] = energyToColor(colorToEnergy(LightBufferR.Load(texCoord)) + Multiplier * e);
             previousCol = col;
         }
         pos += SweepStep;

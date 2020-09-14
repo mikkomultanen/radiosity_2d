@@ -11,9 +11,9 @@ public class RadiositySystem : MonoBehaviour
 	public float size = 256;
     public int textureSize = 1024;
     public RenderTextureFormat textureFormat = RenderTextureFormat.DefaultHDR;
-    [Range(0, 256)]
+    [Range(4, 512)]
     public int sweeps = 128;
-    [Range(0, 256)]
+    [Range(4, 256)]
     public int sweepsPerFrame = 16;
     [Range(0, 1)]
     public float feedback = 0.9f;
@@ -28,6 +28,8 @@ public class RadiositySystem : MonoBehaviour
     private int sweepKernel;
 	private Camera cam;
     private int sweep;
+    private int[] order;
+    private float avgLPS = 0f;
 
     private void Awake()
     {
@@ -113,6 +115,16 @@ public class RadiositySystem : MonoBehaviour
 	}
 
 	private void LateUpdate() {
+        if (order == null || order.Length != (sweeps / 4)) 
+        {
+            order = new int[sweeps / 4];
+            for (int i = 0; i < sweeps / 4; ++i) 
+            {
+                order[i] = i;
+            }
+            Shuffle(order);
+        }
+
 		RenderTexture shapes = RenderTexture.GetTemporary(textureSize, textureSize, 24, RenderTextureFormat.DefaultHDR, RenderTextureReadWrite.Linear, 1);
 		shapes.filterMode = FilterMode.Point;
 		cam.targetTexture = shapes;
@@ -129,10 +141,11 @@ public class RadiositySystem : MonoBehaviour
         radiosityShader.SetTexture(sweepKernel, "ShapesTexR", shapes);
         radiosityShader.SetInt("TexSize", textureSize);
         radiosityShader.SetFloat("FeedbackMultiplier", feedback);
-        radiosityShader.SetFloat("Multiplier", multiplier / sweepsPerFrame);
-        float rndAngle = 0f;//Random.Range(-0.5f, 0.5f);
+        radiosityShader.SetFloat("Multiplier", multiplier / ((sweepsPerFrame / 4) * 4));
+        int linesInFrame = 0;
         for (int k = 0; k < sweepsPerFrame / 4; ++k)
         {
+            float rndAngle = Random.Range(-0.5f, 0.5f);
             for (int q = 0; q < 4; ++q)
             {
                 Vector4 qStart;
@@ -150,7 +163,7 @@ public class RadiositySystem : MonoBehaviour
                         qStart = new Vector4(0, textureSize, 1, -1);
                         break;
                 }
-                float angle = 0.5f * Mathf.PI * ((sweep + 0.5f + rndAngle) / sweeps + q);
+                float angle = 0.5f * Mathf.PI * ((order[sweep] + 0.5f + rndAngle) / (sweeps / 4) + q);
                 var dir = new Vector2(Mathf.Cos(angle), Mathf.Sin(angle));
                 Vector4 start;
                 var dx = Mathf.Abs(dir.x);
@@ -171,13 +184,17 @@ public class RadiositySystem : MonoBehaviour
                 radiosityShader.SetVector("SweepStep", dir);
                 radiosityShader.Dispatch(sweepKernel, lines / 8, 1, 1);
                 Swap(lightBuffer);
+
+                linesInFrame += (lines / 8) * 8;
             }
-            sweep = (sweep + 4) % sweeps;
+            sweep = (sweep + 1) % (sweeps / 4);
         }
 
         //Graphics.Blit(shapes, lightTexture);
         RenderTexture.ReleaseTemporary(shapes);
         Shader.SetGlobalTexture("LightTex", lightBuffer[0]);
+
+        avgLPS = Mathf.Lerp(avgLPS, linesInFrame / Time.deltaTime, 0.01f);
 	}
 
 	private void OnDisable() {
@@ -187,9 +204,20 @@ public class RadiositySystem : MonoBehaviour
 
     void OnGUI()
     {
-        var text = "Supported MRT count: ";
-        text += SystemInfo.supportedRenderTargetCount;
+        var text = "Avg LPS: " + string.Format("{0:F1}M", avgLPS / 1000000);
         GUI.Label(new Rect(0, 0, 200, 200), text);
+    }
+
+    public static void Shuffle(int[] array)
+    {
+        int n = array.Length;
+        while (n > 1) 
+        {
+            int k = Random.Range(0, n--);
+            int temp = array[n];
+            array[n] = array[k];
+            array[k] = temp;
+        }
     }
 
     public static void Swap(RenderTexture[] buffers)
